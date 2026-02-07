@@ -2,17 +2,33 @@
 
 **Retail inventory tracker with AI-powered vision and demand forecasting**
 
-Built for UGAHacks 11 | NCR Voyix Track (Stockout Prediction + Reorder Timing)
+Built for UGAHacks 11 | NCR Voyix Track (Stockout Prediction + Reorder Timing) | General AI | First Timer | .tech Domain Name 
 
-## Overview
+## Team
+
+Braxton Scarborough, Noah Piontek, Zachary Locker, Tyler Price
+
+## Project Purpose 
 
 Storacle helps retail businesses track inventory with just two photos per day (morning and end-of-day). Using Google Gemini Vision API, it automatically counts products and forecasts stockouts to suggest optimal reorder timing.
 
 **Core Features:**
-- 📸 Image-based inventory counting via Gemini Vision
-- 📊 Time-series demand forecasting
-- ⚠️ Stockout prediction and reorder suggestions
-- 📈 Visual dashboard for inventory trends
+- Image-based inventory counting via Gemini Vision
+- Time-series demand forecasting
+- Stockout prediction and reorder suggestions
+- Visual dashboard for inventory trends
+
+### Development Workflow
+
+1. **Take Photos:** Capture inventory images (AM and EOD)
+2. **Upload:** POST to `/snapshots/upload` with image and time
+3. **Process:** Gemini Vision counts products automatically
+4. **Analyze:** View trends and forecasts on dashboard
+5. **Reorder:** Get stockout alerts and reorder timing suggestions
+
+## Challenges 
+
+TO-DO 
 
 ## Tech Stack
 
@@ -98,7 +114,7 @@ Storacle helps retail businesses track inventory with just two photos per day (m
 
 ## API Documentation
 
-Once the backend is running, visit:
+Once the backend is running: 
 - **Swagger UI:** http://localhost:8000/docs
 - **ReDoc:** http://localhost:8000/redoc
 
@@ -128,14 +144,6 @@ storacle/
 └── INSTRUCTIONS.md     # Detailed setup instructions
 ```
 
-## Development Workflow
-
-1. **Take Photos:** Capture inventory images (AM and EOD)
-2. **Upload:** POST to `/snapshots/upload` with image and time
-3. **Process:** Gemini Vision counts products automatically
-4. **Analyze:** View trends and forecasts on dashboard
-5. **Reorder:** Get stockout alerts and reorder timing suggestions
-
 ## Environment Variables
 
 ### Backend (`backend/.env`)
@@ -149,25 +157,6 @@ storacle/
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `NEXT_PUBLIC_API_URL` | Backend API base URL | `http://localhost:8000` |
-
-## Database Schema
-
-**Snapshots:**
-- `id` (Primary Key)
-- `timestamp` (DateTime, auto-generated)
-- `time_of_day` (String: "AM" or "EOD")
-
-**InventoryCount:**
-- `id` (Primary Key)
-- `snapshot_id` (Foreign Key → Snapshots)
-- `product_type` (String: product name/category)
-- `count` (Integer: quantity)
-
-**Relationship:** One Snapshot → Many InventoryCounts
-
-## Team
-
-*Add your team member names here*
 
 ## License
 
