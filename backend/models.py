@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, Float, String, DateTime, ForeignKey
 from sqlalchemy.orm import relationship
 from datetime import datetime
 
@@ -25,3 +25,13 @@ class InventoryCount(Base):
     count = Column(Integer, nullable=False)
 
     snapshot = relationship("Snapshot", back_populates="counts")
+
+
+class GeminiSpend(Base):
+    __tablename__ = "gemini_spend"
+
+    id = Column(Integer, primary_key=True, default=1)
+    total_usd = Column(Float, nullable=False, default=0.0)
+    total_input_tokens = Column(Integer, nullable=False, default=0)
+    total_output_tokens = Column(Integer, nullable=False, default=0)
+    last_updated = Column(DateTime, default=datetime.utcnow)

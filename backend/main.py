@@ -11,8 +11,8 @@ from datetime import datetime
 from dotenv import load_dotenv
 import google.genai as genai
 
-from database import engine, get_db, Base
-from models import Snapshot, InventoryCount
+from database import engine, get_db, SessionLocal, Base
+from models import Snapshot, InventoryCount, GeminiSpend
 
 load_dotenv()
 
@@ -26,13 +26,32 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Gemini client
+# Gemini client + spend config
 gemini_client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+GEMINI_SPEND_LIMIT = float(os.getenv("GEMINI_SPEND_LIMIT_USD", "250"))
+INPUT_COST_PER_TOKEN = 0.10 / 1_000_000   # $0.10 per 1M input tokens
+OUTPUT_COST_PER_TOKEN = 0.40 / 1_000_000   # $0.40 per 1M output tokens
 
 
 @app.on_event("startup")
 def on_startup():
     Base.metadata.create_all(bind=engine)
+
+    # Initialize spend row if it doesn't exist, and optionally reset
+    db = SessionLocal()
+    try:
+        spend = db.query(GeminiSpend).filter(GeminiSpend.id == 1).first()
+        if spend is None:
+            db.add(GeminiSpend(id=1, total_usd=0.0, total_input_tokens=0, total_output_tokens=0))
+            db.commit()
+        elif os.getenv("GEMINI_SPEND_RESET") == "1":
+            spend.total_usd = 0.0
+            spend.total_input_tokens = 0
+            spend.total_output_tokens = 0
+            db.commit()
+            print("Gemini spend tracker reset to $0.00")
+    finally:
+        db.close()
 
 
 @app.get("/health")
@@ -77,11 +96,38 @@ class EditCountInput(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Gemini Vision helper
+# Gemini Vision helper (with spend cap)
 # ---------------------------------------------------------------------------
 
-async def count_products_from_image(image_bytes: bytes, mime_type: str) -> list[dict]:
+def _check_spend_limit(db: Session) -> float:
+    """Return current spend. Raise 503 if limit is reached."""
+    spend = db.query(GeminiSpend).filter(GeminiSpend.id == 1).first()
+    current = spend.total_usd if spend else 0.0
+    if current >= GEMINI_SPEND_LIMIT:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Gemini spend limit reached (${current:.4f} / ${GEMINI_SPEND_LIMIT:.0f}). API calls disabled.",
+        )
+    return current
+
+
+def _record_spend(db: Session, input_tokens: int, output_tokens: int) -> float:
+    """Calculate cost, update the spend tracker, return the call cost."""
+    cost = (input_tokens * INPUT_COST_PER_TOKEN) + (output_tokens * OUTPUT_COST_PER_TOKEN)
+    spend = db.query(GeminiSpend).filter(GeminiSpend.id == 1).first()
+    spend.total_usd += cost
+    spend.total_input_tokens += input_tokens
+    spend.total_output_tokens += output_tokens
+    spend.last_updated = datetime.utcnow()
+    db.commit()
+    return cost
+
+
+async def count_products_from_image(image_bytes: bytes, mime_type: str, db: Session) -> list[dict]:
     """Send an image to Gemini Vision and return structured product counts."""
+    # Check spend before calling
+    _check_spend_limit(db)
+
     b64_data = base64.b64encode(image_bytes).decode("utf-8")
 
     response = gemini_client.models.generate_content(
@@ -103,18 +149,60 @@ async def count_products_from_image(image_bytes: bytes, mime_type: str) -> list[
         ],
     )
 
+    # Track spend from usage metadata
+    usage = response.usage_metadata
+    if usage:
+        input_tokens = getattr(usage, "prompt_token_count", None) or getattr(usage, "input_token_count", 0) or 0
+        output_tokens = getattr(usage, "candidates_token_count", None) or getattr(usage, "output_token_count", 0) or 0
+        cost = _record_spend(db, input_tokens, output_tokens)
+        spend = db.query(GeminiSpend).filter(GeminiSpend.id == 1).first()
+        print(f"Gemini call: {input_tokens} in / {output_tokens} out = ${cost:.6f} (total: ${spend.total_usd:.4f})")
+    else:
+        print("WARNING: Gemini response missing usage_metadata — spend not tracked for this call")
+
     text = response.text.strip()
     # Strip markdown code fences if Gemini wraps the response
     if text.startswith("```"):
         text = text.split("\n", 1)[1]
         text = text.rsplit("```", 1)[0]
 
-    return json.loads(text)
+    raw_items = json.loads(text)
+    print(f"Gemini raw response: {raw_items}")
+
+    # Normalize keys — Gemini may use "product", "item", "name", etc.
+    normalized = []
+    for item in raw_items:
+        product = (
+            item.get("product_type")
+            or item.get("product")
+            or item.get("item")
+            or item.get("name")
+            or item.get("type")
+            or "unknown"
+        )
+        count = item.get("count") or item.get("quantity") or item.get("number") or 0
+        normalized.append({"product_type": str(product).lower().replace(" ", "_"), "count": int(count)})
+
+    return normalized
 
 
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
+
+@app.get("/spend")
+def get_spend(db: Session = Depends(get_db)):
+    """Check current Gemini API spend vs limit."""
+    spend = db.query(GeminiSpend).filter(GeminiSpend.id == 1).first()
+    return {
+        "total_usd": round(spend.total_usd, 6) if spend else 0.0,
+        "limit_usd": GEMINI_SPEND_LIMIT,
+        "remaining_usd": round(GEMINI_SPEND_LIMIT - (spend.total_usd if spend else 0.0), 6),
+        "total_input_tokens": spend.total_input_tokens if spend else 0,
+        "total_output_tokens": spend.total_output_tokens if spend else 0,
+        "last_updated": spend.last_updated.isoformat() if spend and spend.last_updated else None,
+    }
+
 
 @app.get("/snapshots")
 def list_snapshots(
@@ -156,7 +244,9 @@ async def upload_snapshot(
     image_bytes = await file.read()
 
     try:
-        product_counts = await count_products_from_image(image_bytes, file.content_type)
+        product_counts = await count_products_from_image(image_bytes, file.content_type, db)
+    except HTTPException:
+        raise  # re-raise spend limit 503 as-is
     except (json.JSONDecodeError, Exception) as e:
         raise HTTPException(status_code=502, detail=f"Gemini parsing failed: {e}")
 
