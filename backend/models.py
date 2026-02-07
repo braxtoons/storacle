@@ -11,8 +11,7 @@ class Snapshot(Base):
     id = Column(Integer, primary_key=True, index=True)
     timestamp = Column(DateTime, default=datetime.utcnow)
     time_of_day = Column(String, nullable=False)  # "AM" or "EOD"
-    # Optional: store path or skip if you don't persist image paths
-    # image_path = Column(String, nullable=True)
+    store_name = Column(String, nullable=False, default="default")
 
     counts = relationship("InventoryCount", back_populates="snapshot")
 

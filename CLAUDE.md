@@ -1,4 +1,5 @@
 # Storacle — Project Guidelines for Claude
+# YOU ARE NOT TO EDIT THIS FILE. ONLY USE IT AS A GUIDE.
 
 This document helps Claude understand the project structure, conventions, and priorities.
 
