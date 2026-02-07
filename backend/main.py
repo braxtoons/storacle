@@ -140,8 +140,10 @@ async def count_products_from_image(image_bytes: bytes, mime_type: str, db: Sess
                         "You are a retail inventory counter. "
                         "Look at this shelf photo and count every visible product by type. "
                         "Return ONLY a JSON array, no markdown, no explanation. "
-                        'Format: [{"product_type": "canned_beans", "count": 12}, ...] '
+                        "Each element MUST be an object with exactly two keys: \"product_type\" (string) and \"count\" (integer). "
+                        "Example: [{\"product_type\": \"skittles\", \"count\": 7}, {\"product_type\": \"pringles_original\", \"count\": 12}] "
                         "Use lowercase_snake_case for product_type names. "
+                        "Do NOT use the product name as a JSON key. "
                         "If you cannot identify products, return an empty array []."
                     )},
                 ]
@@ -170,18 +172,40 @@ async def count_products_from_image(image_bytes: bytes, mime_type: str, db: Sess
     print(f"Gemini raw response: {raw_items}")
 
     # Normalize keys — Gemini may use "product", "item", "name", etc.
+    KNOWN_PRODUCT_KEYS = ("product_type", "product", "item", "name", "type", "label", "category")
+    KNOWN_COUNT_KEYS = ("count", "quantity", "number", "amount", "total")
+
     normalized = []
     for item in raw_items:
-        product = (
-            item.get("product_type")
-            or item.get("product")
-            or item.get("item")
-            or item.get("name")
-            or item.get("type")
-            or "unknown"
+        # Try known keys first
+        product = next(
+            (v for k in KNOWN_PRODUCT_KEYS
+             if (v := item.get(k)) is not None and v != ""),
+            None,
         )
-        count = item.get("count") or item.get("quantity") or item.get("number") or 0
-        normalized.append({"product_type": str(product).lower().replace(" ", "_"), "count": int(count)})
+        count = next(
+            (v for k in KNOWN_COUNT_KEYS
+             if (v := item.get(k)) is not None),
+            None,
+        )
+
+        # Fallback: Gemini sometimes returns {"product_name": count_value} with
+        # the product as the key and the count as the value (single-entry dicts
+        # or dicts where no known key matched).
+        if product is None and count is None and len(item) >= 1:
+            for k, v in item.items():
+                if k not in KNOWN_PRODUCT_KEYS and k not in KNOWN_COUNT_KEYS:
+                    try:
+                        count = int(v)
+                        product = k
+                        break
+                    except (ValueError, TypeError):
+                        continue
+
+        normalized.append({
+            "product_type": str(product or "unknown").lower().replace(" ", "_"),
+            "count": int(count or 0),
+        })
 
     return normalized
 

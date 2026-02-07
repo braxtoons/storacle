@@ -11,7 +11,17 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { cn } from "@/lib/utils";
+import { uploadSnapshot, ApiError, type InventoryCount } from "@/lib/api";
+import Link from "next/link";
 
 export default function UploadPage() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -21,11 +31,13 @@ export default function UploadPage() {
     type: "success" | "error" | null;
     message: string;
   }>({ type: null, message: "" });
+  const [resultCounts, setResultCounts] = useState<InventoryCount[]>([]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files?.[0]) {
       setSelectedFile(e.target.files[0]);
       setUploadStatus({ type: null, message: "" });
+      setResultCounts([]);
     }
   };
 
@@ -37,11 +49,13 @@ export default function UploadPage() {
     }
     setIsUploading(true);
     setUploadStatus({ type: null, message: "" });
+    setResultCounts([]);
     try {
-      await new Promise((resolve) => setTimeout(resolve, 1500));
+      const response = await uploadSnapshot(selectedFile, timeOfDay);
+      setResultCounts(response.counts);
       setUploadStatus({
         type: "success",
-        message: `Snapshot uploaded successfully! (${timeOfDay})`,
+        message: `Snapshot #${response.snapshot_id} uploaded successfully! (${timeOfDay}) — ${response.counts.length} product type(s) detected.`,
       });
       setSelectedFile(null);
       const fileInput = document.getElementById("file-input") as HTMLInputElement;
@@ -50,7 +64,7 @@ export default function UploadPage() {
       setUploadStatus({
         type: "error",
         message:
-          error instanceof Error
+          error instanceof ApiError
             ? error.message
             : "Failed to upload snapshot. Please try again.",
       });
@@ -178,6 +192,41 @@ export default function UploadPage() {
               </form>
             </CardContent>
           </Card>
+
+          {resultCounts.length > 0 && (
+            <Card className="border-border bg-card">
+              <CardHeader>
+                <CardTitle className="text-base">Detected products</CardTitle>
+                <CardDescription>
+                  Gemini Vision identified {resultCounts.length} product type(s).
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Product</TableHead>
+                      <TableHead className="text-right">Count</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {resultCounts.map((item, i) => (
+                      <TableRow key={`${item.product_type}-${i}`}>
+                        <TableCell className="font-medium">{item.product_type.replace(/_/g, " ")}</TableCell>
+                        <TableCell className="text-right tabular-nums">{item.count}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+                <Link
+                  href="/inventory"
+                  className="inline-block text-sm text-primary underline underline-offset-4 hover:text-primary/80"
+                >
+                  View in Inventory &rarr;
+                </Link>
+              </CardContent>
+            </Card>
+          )}
 
           <Card className="border-border bg-card">
             <CardHeader className="pb-2">
