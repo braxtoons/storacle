@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
@@ -26,9 +27,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <div className="dark min-h-screen bg-background text-foreground flex">
       <aside className="w-56 shrink-0 border-r border-sidebar-border bg-sidebar flex flex-col">
         <div className="p-4 border-b border-sidebar-border">
-          <h1 className="font-semibold text-lg text-sidebar-foreground tracking-tight">
-            Storacle
-          </h1>
+          <div className="flex items-center gap-2">
+            <Image
+              src="/storacle.png"
+              alt="Storacle"
+              width={55}
+              height={55}
+              className="shrink-0 size-[55px] object-contain"
+            />
+            <h1 className="font-semibold text-lg text-sidebar-foreground tracking-tight">
+              Storacle
+            </h1>
+          </div>
           <p className="text-xs text-muted-foreground mt-0.5">
             Retail inventory tracker
           </p>
