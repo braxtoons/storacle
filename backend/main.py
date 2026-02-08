@@ -82,12 +82,7 @@ def on_startup():
     finally:
         db.close()
 
-
-@app.get("/health")
-def health():
-    return {"status": "ok"}
-
-# Migration: add store_name to snapshots if missing (existing DBs created before this column)
+    # Migration: add store_name to snapshots if missing (existing DBs created before this column)
     with engine.connect() as conn:
         r = conn.execute(text("PRAGMA table_info(snapshots)"))
         columns = [row[1] for row in r.fetchall()]
@@ -97,6 +92,11 @@ def health():
             ))
             conn.commit()
             print("Migration: added store_name column to snapshots")
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
 
 
 # ---------------------------------------------------------------------------
