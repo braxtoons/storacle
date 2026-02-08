@@ -10,7 +10,28 @@ import {
 } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { Loader2 } from "lucide-react";
-import { getSnapshots, type Snapshot } from "@/lib/api";
+import {
+  getSnapshots,
+  getForecastableProducts,
+  getForecast,
+  type Snapshot,
+  type ForecastResult,
+} from "@/lib/api";
+
+function formatProductLabel(productType: string): string {
+  return productType
+    .split("_")
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
+function stockoutVariant(
+  restockDays: number
+): "destructive" | "warning" | "success" {
+  if (restockDays <= 1) return "destructive";
+  if (restockDays <= 4) return "warning";
+  return "success";
+}
 
 function StockoutGauge({
   label,
@@ -38,7 +59,7 @@ function StockoutGauge({
             variant === "warning" && "bg-amber-500",
             variant === "success" && "bg-emerald-500"
           )}
-          style={{ height: `${fillPercent}%` }}
+          style={{ height: `${Math.min(100, Math.max(5, fillPercent))}%` }}
         />
       </div>
       <span
@@ -64,13 +85,31 @@ function sameCalendarDay(a: string, b: string): boolean {
 
 export default function DashboardPage() {
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
+  const [forecasts, setForecasts] = useState<ForecastResult[]>([]);
   const [loading, setLoading] = useState(true);
+  const [forecastLoading, setForecastLoading] = useState(true);
 
   useEffect(() => {
     getSnapshots()
       .then(setSnapshots)
       .catch(() => {})
       .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    getForecastableProducts()
+      .then(({ product_types }) => Promise.all(
+        product_types.slice(0, 5).map((pt) => getForecast(pt, { horizon: 14 }))
+      ))
+      .then((results) => {
+        if (!cancelled) setForecasts(results);
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setForecastLoading(false);
+      });
+    return () => { cancelled = true; };
   }, []);
 
   const now = new Date();
@@ -201,28 +240,41 @@ export default function DashboardPage() {
             <CardTitle className="text-base">Stockout countdown</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="flex justify-around gap-4">
-              <StockoutGauge
-                label="Canned beans"
-                status="OUT BY 7:15 PM"
-                variant="destructive"
-                fillPercent={92}
-              />
-              <StockoutGauge
-                label="Tomatoes"
-                status="Low by 18:00"
-                variant="warning"
-                fillPercent={55}
-              />
-              <StockoutGauge
-                label="Soup"
-                status="OK"
-                variant="success"
-                fillPercent={25}
-              />
-            </div>
+            {forecastLoading ? (
+              <div className="flex items-center justify-center gap-2 py-8 text-muted-foreground">
+                <Loader2 className="size-4 animate-spin" />
+                Loading forecast…
+              </div>
+            ) : forecasts.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-4 text-center">
+                Add at least 2 days of AM and EOD snapshots per product to see stockout forecast.
+              </p>
+            ) : (
+              <div className="flex justify-around gap-4">
+                {forecasts.slice(0, 3).map((f) => {
+                  const days = f.restock_day_median ?? 99;
+                  const variant = stockoutVariant(days);
+                  const status =
+                    days <= 1
+                      ? `Restock by ${f.restock_date_median}`
+                      : days <= 4
+                        ? `Low in ~${days.toFixed(0)} days`
+                        : "OK";
+                  const fillPercent = days <= 1 ? 95 : days <= 4 ? 50 : 20;
+                  return (
+                    <StockoutGauge
+                      key={f.product_type}
+                      label={formatProductLabel(f.product_type)}
+                      status={status}
+                      variant={variant}
+                      fillPercent={fillPercent}
+                    />
+                  );
+                })}
+              </div>
+            )}
             <p className="text-xs text-muted-foreground text-center mt-3">
-              Placeholder — will use /forecast endpoint
+              From /forecast (exponential smoothing on AM/EOD demand)
             </p>
           </CardContent>
         </Card>
@@ -232,18 +284,49 @@ export default function DashboardPage() {
             <CardTitle className="text-base">Suggested reorder</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
-            <p className="text-sm">
-              Reorder suggested: <strong>5 cases canned tomatoes</strong>
-            </p>
-            <Button className="w-full bg-emerald-600 hover:bg-emerald-700 text-white">
-              Create reorder (Forecasts)
-            </Button>
+            {forecastLoading ? (
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <Loader2 className="size-4 animate-spin" />
+                Loading…
+              </div>
+            ) : forecasts.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No reorder suggestion yet. Add AM/EOD history to see forecasts.
+              </p>
+            ) : (
+              <>
+                {(() => {
+                  const soonest = [...forecasts]
+                    .filter((f) => (f.restock_day_median ?? 99) < 14)
+                    .sort(
+                      (a, b) =>
+                        (a.restock_day_median ?? 99) - (b.restock_day_median ?? 99)
+                    )[0];
+                  if (!soonest) {
+                    return (
+                      <p className="text-sm text-muted-foreground">
+                        No urgent reorder. Stock levels look good within the forecast horizon.
+                      </p>
+                    );
+                  }
+                  return (
+                    <p className="text-sm">
+                      Reorder suggested:{" "}
+                      <strong>
+                        ~{Math.ceil(soonest.predicted_stock_needed)} units{" "}
+                        {formatProductLabel(soonest.product_type)}
+                      </strong>{" "}
+                      by {soonest.restock_date_median}
+                    </p>
+                  );
+                })()}
+                <Button className="w-full bg-emerald-600 hover:bg-emerald-700 text-white" asChild>
+                  <a href="/forecasts">Create reorder (Forecasts)</a>
+                </Button>
+              </>
+            )}
             <p className="text-xs text-muted-foreground">
-              Est. lost revenue if not ordered:{" "}
-              <span className="text-destructive font-medium">$450</span>
-            </p>
-            <p className="text-xs text-muted-foreground">
-              Placeholder — will use /forecast endpoint
+              Restock dates from forecast API (80% confidence interval).
             </p>
           </CardContent>
         </Card>

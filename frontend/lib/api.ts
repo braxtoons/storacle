@@ -25,6 +25,24 @@ export interface SnapshotUploadResponse {
   counts: InventoryCount[];
 }
 
+/** Forecast result from GET /forecast */
+export interface ForecastResult {
+  product_type: string;
+  store_name: string | null;
+  current_inventory: number;
+  horizon_days: number;
+  predicted_demand_per_day: number[];
+  predicted_stock_needed: number;
+  demand_history_days: number;
+  restock_date_median: string;
+  restock_date_low?: string;
+  restock_date_high?: string;
+  restock_confidence_level: number | null;
+  restock_day_median?: number;
+  restock_day_low?: number;
+  restock_day_high?: number;
+}
+
 /**
  * Custom error class for API errors
  */
@@ -110,6 +128,49 @@ export async function getSnapshots(): Promise<Snapshot[]> {
     }
     throw new ApiError("Network error: Unable to reach the server", 0);
   }
+}
+
+/**
+ * List product types that have enough AM+EOD history to forecast
+ */
+export async function getForecastableProducts(
+  storeName?: string
+): Promise<{ product_types: string[] }> {
+  const params = storeName ? `?store_name=${encodeURIComponent(storeName)}` : "";
+  const response = await fetch(`${API_BASE_URL}/forecast/products${params}`);
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new ApiError(
+      errorData.detail || "Failed to fetch forecastable products",
+      response.status,
+      errorData
+    );
+  }
+  return response.json();
+}
+
+/**
+ * Get demand forecast and restock date for a product type
+ */
+export async function getForecast(
+  productType: string,
+  options?: { storeName?: string; horizon?: number; safetyStock?: number }
+): Promise<ForecastResult> {
+  const params = new URLSearchParams({ product_type: productType });
+  if (options?.storeName) params.set("store_name", options.storeName);
+  if (options?.horizon != null) params.set("horizon", String(options.horizon));
+  if (options?.safetyStock != null)
+    params.set("safety_stock", String(options.safetyStock));
+  const response = await fetch(`${API_BASE_URL}/forecast?${params}`);
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new ApiError(
+      errorData.detail || "Failed to fetch forecast",
+      response.status,
+      errorData
+    );
+  }
+  return response.json();
 }
 
 /**
