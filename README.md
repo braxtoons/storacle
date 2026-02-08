@@ -28,7 +28,7 @@ Storacle helps retail businesses track inventory with just two photos per day (m
 
 ## Challenges 
 
-TO-DO 
+The main issues we ran into were developing a solid plan to handle image uploading and data display for the user. We discussed countless ways that images could be uploaded and how that could data be displayed. We drafted some mock-ups of the site design, went through many iterations, and ultimately chose the design and layout we thought would best suit the user.    
 
 ## Tech Stack
 
