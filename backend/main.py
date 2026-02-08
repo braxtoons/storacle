@@ -18,6 +18,29 @@ load_dotenv()
 
 app = FastAPI()
 
+# Load prompts from files
+PROMPTS_DIR = os.path.join(os.path.dirname(__file__), "prompts")
+SYSTEM_PROMPT = ""
+USER_PROMPT = ""
+
+
+def load_prompts():
+    """Load system and user prompts from files."""
+    global SYSTEM_PROMPT, USER_PROMPT
+
+    system_prompt_path = os.path.join(PROMPTS_DIR, "system_prompt.txt")
+    user_prompt_path = os.path.join(PROMPTS_DIR, "user_prompt.txt")
+
+    try:
+        with open(system_prompt_path, "r") as f:
+            SYSTEM_PROMPT = f.read().strip()
+        with open(user_prompt_path, "r") as f:
+            USER_PROMPT = f.read().strip()
+        print(f"Loaded prompts from {PROMPTS_DIR}")
+    except FileNotFoundError as e:
+        print(f"Warning: Could not load prompt files: {e}")
+        
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000"],
@@ -36,6 +59,9 @@ OUTPUT_COST_PER_TOKEN = 0.40 / 1_000_000   # $0.40 per 1M output tokens
 @app.on_event("startup")
 def on_startup():
     Base.metadata.create_all(bind=engine)
+
+    # Load prompts from files
+    load_prompts()
 
     # Initialize spend row if it doesn't exist, and optionally reset
     db = SessionLocal()
@@ -130,22 +156,16 @@ async def count_products_from_image(image_bytes: bytes, mime_type: str, db: Sess
 
     b64_data = base64.b64encode(image_bytes).decode("utf-8")
 
+    # Combine system and user prompts
+    combined_prompt = f"{SYSTEM_PROMPT}\n\n{USER_PROMPT}"
+
     response = gemini_client.models.generate_content(
         model="gemini-2.0-flash",
         contents=[
             {
                 "parts": [
                     {"inline_data": {"mime_type": mime_type, "data": b64_data}},
-                    {"text": (
-                        "You are a retail inventory counter. "
-                        "Look at this shelf photo and count every visible product by type. "
-                        "Return ONLY a JSON array, no markdown, no explanation. "
-                        "Each element MUST be an object with exactly two keys: \"product_type\" (string) and \"count\" (integer). "
-                        "Example: [{\"product_type\": \"skittles\", \"count\": 7}, {\"product_type\": \"pringles_original\", \"count\": 12}] "
-                        "Use lowercase_snake_case for product_type names. "
-                        "Do NOT use the product name as a JSON key. "
-                        "If you cannot identify products, return an empty array []."
-                    )},
+                    {"text": combined_prompt},
                 ]
             }
         ],

@@ -1,0 +1,9 @@
+Look at this retail shelf photo and count every visible product by type.
+
+Return ONLY a JSON array with this exact structure:
+[{"product_type": "product_name", "count": number}]
+
+Remember:
+- Use lowercase_snake_case for product names
+- Count each visible unit accurately
+- Return only the JSON array, nothing else
