@@ -93,6 +93,8 @@ def health():
 class InventoryCountResponse(BaseModel):
     product_type: str
     count: int
+    confidence_score: Optional[str] = "medium"  # "low", "medium", or "high"
+    units: Optional[str] = "units"  # Measurement unit: "units", "boxes", "cans", "bottles", "bags", "pounds", etc.
 
     class Config:
         from_attributes = True
@@ -109,6 +111,8 @@ class SnapshotResponse(BaseModel):
 class ManualCountInput(BaseModel):
     product_type: str
     count: int
+    confidence_score: Optional[str] = "medium"
+    units: Optional[str] = "units"
 
 
 class ManualSnapshotInput(BaseModel):
@@ -120,6 +124,8 @@ class ManualSnapshotInput(BaseModel):
 class EditCountInput(BaseModel):
     product_type: str
     count: int
+    confidence_score: Optional[str] = None
+    units: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -194,8 +200,10 @@ async def count_products_from_image(image_bytes: bytes, mime_type: str, db: Sess
     print(f"Gemini raw response: {raw_items}")
 
     # Normalize keys — Gemini may use "product", "item", "name", etc.
-    KNOWN_PRODUCT_KEYS = ("product_type", "product", "item", "name", "type", "label", "category")
+    KNOWN_PRODUCT_KEYS = ("product_type", "product", "item", "name", "type", "label")
     KNOWN_COUNT_KEYS = ("count", "quantity", "number", "amount", "total")
+    KNOWN_CONFIDENCE_KEYS = ("confidence_score", "confidence", "accuracy", "certainty")
+    KNOWN_UNITS_KEYS = ("units", "unit", "measurement", "measurement_unit")
 
     normalized = []
     for item in raw_items:
@@ -211,6 +219,18 @@ async def count_products_from_image(image_bytes: bytes, mime_type: str, db: Sess
             None,
         )
 
+        # Extract optional new fields with defaults (backward compatible)
+        confidence = next(
+            (v for k in KNOWN_CONFIDENCE_KEYS
+             if (v := item.get(k)) is not None and v != ""),
+            "medium",  # Default if not provided
+        )
+        unit = next(
+            (v for k in KNOWN_UNITS_KEYS
+             if (v := item.get(k)) is not None and v != ""),
+            "units",  # Default if not provided
+        )
+
         # Fallback: Gemini sometimes returns {"product_name": count_value} with
         # the product as the key and the count as the value (single-entry dicts
         # or dicts where no known key matched).
@@ -224,10 +244,27 @@ async def count_products_from_image(image_bytes: bytes, mime_type: str, db: Sess
                     except (ValueError, TypeError):
                         continue
 
+        # Validate confidence_score (must be low, medium, or high)
+        confidence_str = str(confidence).lower()
+        if confidence_str not in ("low", "medium", "high"):
+            confidence_str = "medium"
+
         normalized.append({
             "product_type": str(product or "unknown").lower().replace(" ", "_"),
             "count": int(count or 0),
+            "confidence_score": confidence_str,
+            "units": str(unit or "units").lower().replace(" ", "_"),
         })
+
+    # Print scan results to terminal
+    print("\n" + "="*80)
+    print("SCAN RESULTS")
+    print("="*80)
+    print(f"Total products identified: {len(normalized)}")
+    print("-"*80)
+    for idx, item in enumerate(normalized, 1):
+        print(f"{idx:2d}. {item['product_type']:40s} | Count: {item['count']:3d} | Confidence: {item['confidence_score']:6s} | Units: {item['units']}")
+    print("="*80 + "\n")
 
     return normalized
 
@@ -266,7 +303,12 @@ def list_snapshots(
             "time_of_day": s.time_of_day,
             "store_name": s.store_name,
             "counts": [
-                {"product_type": c.product_type, "count": c.count}
+                {
+                    "product_type": c.product_type,
+                    "count": c.count,
+                    "confidence_score": c.confidence_score or "medium",
+                    "units": c.units or "units",
+                }
                 for c in s.counts
             ],
         }
@@ -310,6 +352,8 @@ async def upload_snapshot(
             snapshot_id=snapshot.id,
             product_type=item["product_type"],
             count=item["count"],
+            confidence_score=item.get("confidence_score", "medium"),
+            units=item.get("units", "units"),
         )
         db.add(ic)
         counts.append(ic)
@@ -321,7 +365,15 @@ async def upload_snapshot(
         timestamp=snapshot.timestamp.isoformat(),
         time_of_day=snapshot.time_of_day,
         store_name=snapshot.store_name,
-        counts=[InventoryCountResponse(product_type=c.product_type, count=c.count) for c in counts],
+        counts=[
+            InventoryCountResponse(
+                product_type=c.product_type,
+                count=c.count,
+                confidence_score=c.confidence_score,
+                units=c.units,
+            )
+            for c in counts
+        ],
     )
 
 
@@ -348,6 +400,8 @@ def create_manual_snapshot(
             snapshot_id=snapshot.id,
             product_type=item.product_type,
             count=item.count,
+            confidence_score=item.confidence_score or "medium",
+            units=item.units or "units",
         )
         db.add(ic)
         counts.append(ic)
@@ -359,7 +413,15 @@ def create_manual_snapshot(
         timestamp=snapshot.timestamp.isoformat(),
         time_of_day=snapshot.time_of_day,
         store_name=snapshot.store_name,
-        counts=[InventoryCountResponse(product_type=c.product_type, count=c.count) for c in counts],
+        counts=[
+            InventoryCountResponse(
+                product_type=c.product_type,
+                count=c.count,
+                confidence_score=c.confidence_score,
+                units=c.units,
+            )
+            for c in counts
+        ],
     )
 
 
@@ -382,11 +444,18 @@ def edit_snapshot_counts(
         )
         if existing:
             existing.count = update.count
+            # Update optional fields if provided
+            if update.confidence_score is not None:
+                existing.confidence_score = update.confidence_score
+            if update.units is not None:
+                existing.units = update.units
         else:
             db.add(InventoryCount(
                 snapshot_id=snapshot_id,
                 product_type=update.product_type,
                 count=update.count,
+                confidence_score=update.confidence_score or "medium",
+                units=update.units or "units",
             ))
 
     db.commit()
