@@ -121,8 +121,7 @@ export default function ForecastsPage() {
                   Demand forecast
                 </CardTitle>
                 <CardDescription>
-                  Predicted usage and stockout risk from AM/EOD deltas. NCR
-                  Voyix alignment: stockout prediction.
+                  Predicted usage and stockout risk from AM/EOD deltas.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -249,8 +248,7 @@ export default function ForecastsPage() {
                   Reorder timing
                 </CardTitle>
                 <CardDescription>
-                  When to reorder to avoid stockouts. NCR Voyix: reorder timing
-                  and suggested quantities.
+                  When to reorder to avoid stockouts.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">

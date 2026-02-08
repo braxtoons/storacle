@@ -5,6 +5,7 @@ import os
 from fastapi import FastAPI, Depends, UploadFile, File, Form, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
+from sqlalchemy import text 
 from pydantic import BaseModel
 from typing import List, Optional
 from datetime import datetime
@@ -13,7 +14,7 @@ import google.genai as genai
 
 from database import engine, get_db, SessionLocal, Base
 from models import Snapshot, InventoryCount, GeminiSpend
-from forecast import run_forecast
+from forecast import run_forecast, get_forecastable_product_types
 
 load_dotenv()
 
@@ -58,6 +59,17 @@ def on_startup():
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+# Migration: add store_name to snapshots if missing (existing DBs created before this column)
+    with engine.connect() as conn:
+        r = conn.execute(text("PRAGMA table_info(snapshots)"))
+        columns = [row[1] for row in r.fetchall()]
+        if "store_name" not in columns:
+            conn.execute(text(
+                "ALTER TABLE snapshots ADD COLUMN store_name VARCHAR NOT NULL DEFAULT 'default'"
+            ))
+            conn.commit()
+            print("Migration: added store_name column to snapshots")
 
 
 # ---------------------------------------------------------------------------
@@ -375,6 +387,15 @@ def edit_snapshot_counts(
 # ---------------------------------------------------------------------------
 # Forecast & restock
 # ---------------------------------------------------------------------------
+
+@app.get("/forecast/products")
+def list_forecastable_products(
+    store_name: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+):
+    """List product types that have enough AM+EOD history to run a forecast."""
+    return {"product_types": get_forecastable_product_types(db, store_name)}
+
 
 @app.get("/forecast")
 def get_forecast(

@@ -89,6 +89,26 @@ def build_daily_demand_series(
     return df["demand"]
 
 
+def get_forecastable_product_types(
+    db: Session,
+    store_name: Optional[str] = None,
+) -> list[str]:
+    """
+    Return product types that have at least MIN_DAYS_FOR_FORECAST days of AM+EOD pairs.
+    """
+    product_types = (
+        db.query(InventoryCount.product_type)
+        .distinct()
+        .all()
+    )
+    product_types = [p[0] for p in product_types]
+    forecastable = []
+    for pt in product_types:
+        if build_daily_demand_series(db, pt, store_name) is not None:
+            forecastable.append(pt)
+    return sorted(forecastable)
+
+
 def forecast_demand(
     demand_series: pd.Series,
     horizon: int = DEFAULT_HORIZON,
