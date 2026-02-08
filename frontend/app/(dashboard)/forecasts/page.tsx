@@ -335,17 +335,11 @@ export default function ForecastsPage() {
                       </table>
                     </div>
                     <Button
-<<<<<<< HEAD
-                      onClick={() => setShowReorderSuccess(true)}
-                      className="w-full bg-emerald-600 hover:bg-emerald-700 text-white"
-                    >
-                      Create reorder
-=======
+
                       className="w-full bg-emerald-600 hover:bg-emerald-700 text-white"
                       onClick={() => downloadReorderCsv(reorderItems)}
                     >
                       Download reorder CSV
->>>>>>> 02d64c4 (Added Reorder Functionality)
                     </Button>
                   </>
                 )}
