@@ -235,6 +235,5 @@ MIT License - Built for UGAHacks 11
 
 ## Acknowledgments
 
-- NCR Voyix for the challenge track
 - Google Gemini API for vision capabilities
 - UGAHacks organizing team
