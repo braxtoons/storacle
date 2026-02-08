@@ -5,6 +5,13 @@ from datetime import datetime
 from database import Base
 
 
+class Store(Base):
+    __tablename__ = "stores"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, unique=True, nullable=False)
+
+
 class Snapshot(Base):
     __tablename__ = "snapshots"
 
@@ -12,6 +19,7 @@ class Snapshot(Base):
     timestamp = Column(DateTime, default=datetime.utcnow)
     time_of_day = Column(String, nullable=False)  # "AM" or "EOD"
     store_name = Column(String, nullable=False, default="default")
+    image_path = Column(String, nullable=True)  # e.g. "snapshots/123.jpg" for uploaded photos
 
     counts = relationship("InventoryCount", back_populates="snapshot")
 

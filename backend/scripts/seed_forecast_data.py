@@ -14,8 +14,8 @@ from datetime import datetime, timedelta, timezone
 # Run from backend so imports work
 sys.path.insert(0, ".")
 
-from database import SessionLocal
-from models import Snapshot, InventoryCount
+from database import engine, SessionLocal, Base
+from models import Store, Snapshot, InventoryCount
 
 random.seed(42)
 
@@ -27,12 +27,30 @@ NUM_DAYS = 25
 
 
 def main():
+    # Ensure all tables exist (works on fresh DB without needing to start the server)
+    Base.metadata.create_all(bind=engine)
+
     db = SessionLocal()
     try:
-        # Optional: uncomment to clear existing snapshots (keeps gemini_spend)
-        # db.query(InventoryCount).delete()
-        # db.query(Snapshot).delete()
-        # db.commit()
+        # Ensure the default store exists
+        if not db.query(Store).filter(Store.name == STORE_NAME).first():
+            db.add(Store(name=STORE_NAME))
+            db.commit()
+            print(f"Created store '{STORE_NAME}'")
+
+        # Clear existing snapshots and inventory counts for the default store
+        snapshot_ids = [
+            s.id for s in db.query(Snapshot.id).filter(Snapshot.store_name == STORE_NAME).all()
+        ]
+        if snapshot_ids:
+            db.query(InventoryCount).filter(
+                InventoryCount.snapshot_id.in_(snapshot_ids)
+            ).delete(synchronize_session=False)
+            db.query(Snapshot).filter(Snapshot.store_name == STORE_NAME).delete(
+                synchronize_session=False
+            )
+            db.commit()
+            print(f"Cleared existing snapshots and inventory for '{STORE_NAME}'")
 
         now = datetime.now(timezone.utc).replace(tzinfo=None)
         base_date = (now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -63,6 +81,8 @@ def main():
                         snapshot_id=am_snap.id,
                         product_type=pt,
                         count=eod_stock[pt],
+                        confidence_score="high",
+                        units="units",
                     )
                 )
                 counts_created += 1
@@ -94,6 +114,8 @@ def main():
                         snapshot_id=eod_snap.id,
                         product_type=pt,
                         count=eod_stock[pt],
+                        confidence_score="high",
+                        units="units",
                     )
                 )
                 counts_created += 1

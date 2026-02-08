@@ -18,11 +18,27 @@ import {
   type ForecastResult,
 } from "@/lib/api";
 
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+import { useStoreName } from "@/lib/use-store";
+
 function formatProductLabel(productType: string): string {
   return productType
     .split("_")
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
     .join(" ");
+}
+
+function formatRestockDate(isoDate: string): string {
+  try {
+    return new Date(isoDate).toLocaleDateString("en-US", {
+      weekday: "long",
+      month: "long",
+      day: "numeric",
+      year: "numeric",
+    });
+  } catch {
+    return isoDate;
+  }
 }
 
 function stockoutVariant(
@@ -49,18 +65,51 @@ function StockoutGauge({
     warning: "bg-amber-500 text-amber-950",
     success: "bg-emerald-500 text-emerald-950",
   };
+  const strokeColor =
+    variant === "destructive"
+      ? "rgb(239 68 68)"
+      : variant === "warning"
+        ? "rgb(245 158 11)"
+        : "rgb(16 185 129)";
+  const size = 96;
+  const strokeWidth = 8;
+  const radius = (size - strokeWidth) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const clampedPercent = Math.min(100, Math.max(0, fillPercent));
+  const strokeDashoffset = circumference - (clampedPercent / 100) * circumference;
   return (
     <div className="flex flex-col items-center gap-2">
-      <div className="relative h-24 w-3 rounded-full bg-muted overflow-hidden">
-        <div
-          className={cn(
-            "absolute bottom-0 left-0 right-0 rounded-full transition-all",
-            variant === "destructive" && "bg-red-500",
-            variant === "warning" && "bg-amber-500",
-            variant === "success" && "bg-emerald-500"
-          )}
-          style={{ height: `${Math.min(100, Math.max(5, fillPercent))}%` }}
-        />
+      <div className="relative" style={{ width: size, height: size }}>
+        <svg
+          className="-rotate-90"
+          width={size}
+          height={size}
+          viewBox={`0 0 ${size} ${size}`}
+        >
+          {/* Background track */}
+          <circle
+            cx={size / 2}
+            cy={size / 2}
+            r={radius}
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={strokeWidth}
+            className="text-muted/50"
+          />
+          {/* Filled arc */}
+          <circle
+            cx={size / 2}
+            cy={size / 2}
+            r={radius}
+            fill="none"
+            stroke={strokeColor}
+            strokeWidth={strokeWidth}
+            strokeLinecap="round"
+            strokeDasharray={circumference}
+            strokeDashoffset={strokeDashoffset}
+            className="transition-all duration-500"
+          />
+        </svg>
       </div>
       <span
         className={cn(
@@ -84,23 +133,26 @@ function sameCalendarDay(a: string, b: string): boolean {
 }
 
 export default function DashboardPage() {
+  const storeName = useStoreName();
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
   const [forecasts, setForecasts] = useState<ForecastResult[]>([]);
   const [loading, setLoading] = useState(true);
   const [forecastLoading, setForecastLoading] = useState(true);
 
   useEffect(() => {
-    getSnapshots()
+    setLoading(true);
+    getSnapshots(storeName)
       .then(setSnapshots)
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, []);
+  }, [storeName]);
 
   useEffect(() => {
     let cancelled = false;
-    getForecastableProducts()
+    setForecastLoading(true);
+    getForecastableProducts(storeName)
       .then(({ product_types }) => Promise.all(
-        product_types.slice(0, 5).map((pt) => getForecast(pt, { horizon: 14 }))
+        product_types.slice(0, 5).map((pt) => getForecast(pt, { storeName, horizon: 14 }))
       ))
       .then((results) => {
         if (!cancelled) setForecasts(results);
@@ -110,7 +162,7 @@ export default function DashboardPage() {
         if (!cancelled) setForecastLoading(false);
       });
     return () => { cancelled = true; };
-  }, []);
+  }, [storeName]);
 
   const now = new Date();
   const timeStr = now.toLocaleTimeString("en-US", {
@@ -176,36 +228,49 @@ export default function DashboardPage() {
           </CardHeader>
           <CardContent className="flex-1 flex flex-col min-h-[200px] p-0">
             <div className="relative flex-1 min-h-[240px] bg-muted/30 rounded-b-xl overflow-hidden">
-              <div className="absolute inset-0 bg-gradient-to-b from-zinc-700 to-zinc-900 flex items-center justify-center">
+              {/* Show image: most recent uploaded image, or default when no snapshots / no image */}
+              <img
+                src={
+                  latest?.image_url
+                    ? `${API_BASE_URL}${latest.image_url}`
+                    : "/dflt.jpg"
+                }
+                alt="Snapshot feed"
+                className="absolute inset-0 w-full h-full object-cover"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
+              <div className="absolute bottom-0 left-0 right-0 flex flex-col items-center justify-end gap-2 pb-3 pt-8 pointer-events-none">
                 {loading ? (
                   <Loader2 className="size-6 animate-spin text-muted-foreground" />
-                ) : latest ? (
-                  <div className="text-center text-white text-sm space-y-1 px-4">
-                    <p className="font-medium">Snapshot #{latest.id} — {latest.time_of_day}</p>
-                    <p className="text-muted-foreground text-xs">
-                      {latest.store_name ?? "default"} · {new Date(latest.timestamp).toLocaleString()}
-                    </p>
-                    {latest.counts && latest.counts.length > 0 && (
-                      <div className="flex flex-wrap justify-center gap-2 mt-2">
-                        {latest.counts.map((c, i) => (
-                          <span key={`${c.product_type}-${i}`} className="rounded bg-white/10 px-2 py-0.5 text-xs">
-                            {c.product_type.replace(/_/g, " ")}: {c.count}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
+                ) : latest?.image_url ? (
+                  <>
+                    <div className="text-center text-white text-sm space-y-1 px-4 drop-shadow-lg">
+                      <p className="font-medium">Snapshot #{latest.id} — {latest.time_of_day}</p>
+                      <p className="text-muted-foreground text-xs">
+                        {latest.store_name ?? "default"} · {new Date(latest.timestamp).toLocaleString()}
+                      </p>
+                      {latest.counts && latest.counts.length > 0 && (
+                        <div className="flex flex-wrap justify-center gap-2 mt-2">
+                          {latest.counts.map((c, i) => (
+                            <span key={`${c.product_type}-${i}`} className="rounded bg-black/40 px-2 py-0.5 text-xs">
+                              {c.product_type.replace(/_/g, " ")}: {c.count}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <div className="text-center bg-black/70 px-4 py-2 rounded-lg text-sm text-white">
+                      Total: {totalUnits(latest)} units ({latest.counts?.length ?? 0} product types)
+                    </div>
+                  </>
                 ) : (
-                  <div className="text-center text-muted-foreground text-sm">
-                    No snapshots yet
+                  <div className="text-center text-white text-sm drop-shadow-lg px-4">
+                    {latest
+                      ? "Take a photo to see inventory counts for this shelf"
+                      : "No snapshots yet"}
                   </div>
                 )}
               </div>
-              {latest && (
-                <div className="absolute bottom-0 left-0 right-0 bg-black/70 px-4 py-2 text-sm text-white">
-                  Total: {totalUnits(latest)} units ({latest.counts?.length ?? 0} product types)
-                </div>
-              )}
             </div>
           </CardContent>
         </Card>
@@ -256,11 +321,13 @@ export default function DashboardPage() {
                   const variant = stockoutVariant(days);
                   const status =
                     days <= 1
-                      ? `Restock by ${f.restock_date_median}`
+                      ? `Restock by ${formatRestockDate(f.restock_date_median)}`
                       : days <= 4
                         ? `Low in ~${days.toFixed(0)} days`
                         : "OK";
-                  const fillPercent = days <= 1 ? 95 : days <= 4 ? 50 : 20;
+                  // Map days to fill: more days = fuller circle (like battery %)
+                  const fillPercent =
+                    days <= 1 ? 8 : days <= 4 ? 35 : Math.min(100, (days / 14) * 100);
                   return (
                     <StockoutGauge
                       key={f.product_type}
@@ -316,7 +383,7 @@ export default function DashboardPage() {
                         ~{Math.ceil(soonest.predicted_stock_needed)} units{" "}
                         {formatProductLabel(soonest.product_type)}
                       </strong>{" "}
-                      by {soonest.restock_date_median}
+                      by {formatRestockDate(soonest.restock_date_median)}
                     </p>
                   );
                 })()}

@@ -18,6 +18,7 @@ import {
   type ForecastResult,
   ApiError,
 } from "@/lib/api";
+import { useStoreName } from "@/lib/use-store";
 
 function formatProductLabel(productType: string): string {
   return productType
@@ -37,6 +38,7 @@ function stockoutRisk(
 }
 
 export default function ForecastsPage() {
+  const storeName = useStoreName();
   const [productTypes, setProductTypes] = useState<string[]>([]);
   const [forecasts, setForecasts] = useState<ForecastResult[]>([]);
   const [loading, setLoading] = useState(true);
@@ -48,14 +50,14 @@ export default function ForecastsPage() {
       setLoading(true);
       setError(null);
       try {
-        const { product_types } = await getForecastableProducts();
+        const { product_types } = await getForecastableProducts(storeName);
         if (cancelled) return;
         setProductTypes(product_types);
         const horizon = 14;
         const results: ForecastResult[] = [];
         for (const pt of product_types) {
           try {
-            const f = await getForecast(pt, { horizon });
+            const f = await getForecast(pt, { storeName, horizon });
             if (cancelled) return;
             results.push(f);
           } catch {
@@ -75,7 +77,7 @@ export default function ForecastsPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [storeName]);
 
   const highRiskForecasts = forecasts.filter((f) => stockoutRisk(f) === "high");
   const reorderItems = forecasts
@@ -133,7 +135,7 @@ export default function ForecastsPage() {
                 ) : forecasts.length === 0 ? (
                   <div className="rounded-lg border border-dashed border-border bg-muted/10 p-8 text-center text-sm text-muted-foreground">
                     {productTypes.length === 0
-                      ? "No products have enough history yet. Add at least 2 days of AM and EOD snapshots per product to see forecasts."
+                      ? "No products have enough history yet for the selected store. Add at least 2 days of AM and EOD snapshots per product to see forecasts. If you ran the seed script, ensure the \"default\" store is selected in the sidebar."
                       : "No forecast data available for the listed products."}
                   </div>
                 ) : (

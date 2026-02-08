@@ -8,6 +8,7 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 export interface InventoryCount {
   product_type: string;
   count: number;
+  confidence_score?: string;
 }
 
 export interface Snapshot {
@@ -15,7 +16,14 @@ export interface Snapshot {
   timestamp: string;
   time_of_day: "AM" | "EOD";
   store_name?: string;
+  image_url?: string | null;
   counts?: InventoryCount[];
+}
+
+export interface Store {
+  id: number;
+  name: string;
+  snapshot_count?: number;
 }
 
 export interface SnapshotUploadResponse {
@@ -67,12 +75,14 @@ export class ApiError extends Error {
 export async function uploadSnapshot(
   file: File,
   timeOfDay: "AM" | "EOD",
-  storeName: string = "default"
+  storeName: string = "default",
+  snapshotDate?: string
 ): Promise<SnapshotUploadResponse> {
   const formData = new FormData();
   formData.append("file", file);
   formData.append("time_of_day", timeOfDay);
   formData.append("store_name", storeName);
+  if (snapshotDate) formData.append("snapshot_date", snapshotDate);
 
   try {
     const response = await fetch(`${API_BASE_URL}/snapshots/upload`, {
@@ -103,9 +113,10 @@ export async function uploadSnapshot(
  *
  * @returns Array of snapshot objects
  */
-export async function getSnapshots(): Promise<Snapshot[]> {
+export async function getSnapshots(storeName?: string): Promise<Snapshot[]> {
   try {
-    const response = await fetch(`${API_BASE_URL}/snapshots`, {
+    const params = storeName ? `?store_name=${encodeURIComponent(storeName)}` : "";
+    const response = await fetch(`${API_BASE_URL}/snapshots${params}`, {
       method: "GET",
       headers: {
         "Content-Type": "application/json",
@@ -171,6 +182,75 @@ export async function getForecast(
     );
   }
   return response.json();
+}
+
+/**
+ * Get the latest EOD snapshot for a store
+ */
+export async function getLatestEod(storeName?: string): Promise<Snapshot | null> {
+  const params = storeName ? `?store_name=${encodeURIComponent(storeName)}` : "";
+  const response = await fetch(`${API_BASE_URL}/snapshots/latest-eod${params}`);
+  if (response.status === 404) return null;
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new ApiError(errorData.detail || "Failed to fetch latest EOD", response.status, errorData);
+  }
+  return response.json();
+}
+
+/**
+ * Edit counts on an existing snapshot
+ */
+export async function editSnapshotCounts(
+  snapshotId: number,
+  updates: { product_type: string; count: number }[]
+): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/snapshots/${snapshotId}/counts`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(updates),
+  });
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new ApiError(errorData.detail || "Failed to update counts", response.status, errorData);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Store management
+// ---------------------------------------------------------------------------
+
+export async function getStores(): Promise<Store[]> {
+  const response = await fetch(`${API_BASE_URL}/stores`);
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new ApiError(errorData.detail || "Failed to fetch stores", response.status, errorData);
+  }
+  const data = await response.json();
+  return data.stores;
+}
+
+export async function addStore(name: string): Promise<Store> {
+  const response = await fetch(`${API_BASE_URL}/stores`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new ApiError(errorData.detail || "Failed to add store", response.status, errorData);
+  }
+  return response.json();
+}
+
+export async function deleteStore(id: number): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/stores/${id}`, {
+    method: "DELETE",
+  });
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new ApiError(errorData.detail || "Failed to delete store", response.status, errorData);
+  }
 }
 
 /**

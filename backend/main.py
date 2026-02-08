@@ -2,19 +2,22 @@ import base64
 import json
 import os
 
+from pathlib import Path
+
 from fastapi import FastAPI, Depends, UploadFile, File, Form, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 from sqlalchemy import text 
 from pydantic import BaseModel
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, date
 from dotenv import load_dotenv
 import google.genai as genai
 from google.genai import types
 
 from database import engine, get_db, SessionLocal, Base
-from models import Snapshot, InventoryCount, GeminiSpend
+from models import Store, Snapshot, InventoryCount, GeminiSpend
 from forecast import run_forecast, get_forecastable_product_types
 
 load_dotenv()
@@ -82,16 +85,56 @@ def on_startup():
     finally:
         db.close()
 
-    # Migration: add store_name to snapshots if missing (existing DBs created before this column)
+    # Migrations: add columns that may be missing on older DBs
     with engine.connect() as conn:
+        # store_name on snapshots
         r = conn.execute(text("PRAGMA table_info(snapshots)"))
-        columns = [row[1] for row in r.fetchall()]
-        if "store_name" not in columns:
+        snap_columns = [row[1] for row in r.fetchall()]
+        if "store_name" not in snap_columns:
             conn.execute(text(
                 "ALTER TABLE snapshots ADD COLUMN store_name VARCHAR NOT NULL DEFAULT 'default'"
             ))
             conn.commit()
             print("Migration: added store_name column to snapshots")
+
+        # confidence_score and units on inventory_counts
+        r = conn.execute(text("PRAGMA table_info(inventory_counts)"))
+        ic_columns = [row[1] for row in r.fetchall()]
+        if "confidence_score" not in ic_columns:
+            conn.execute(text(
+                "ALTER TABLE inventory_counts ADD COLUMN confidence_score VARCHAR DEFAULT 'medium'"
+            ))
+            conn.commit()
+            print("Migration: added confidence_score column to inventory_counts")
+        if "units" not in ic_columns:
+            conn.execute(text(
+                "ALTER TABLE inventory_counts ADD COLUMN units VARCHAR DEFAULT 'units'"
+            ))
+            conn.commit()
+            print("Migration: added units column to inventory_counts")
+        if "image_path" not in snap_columns:
+            conn.execute(text(
+                "ALTER TABLE snapshots ADD COLUMN image_path VARCHAR"
+            ))
+            conn.commit()
+            print("Migration: added image_path column to snapshots")
+
+    # Ensure uploads directory exists for snapshot images
+    UPLOADS_DIR = Path(__file__).resolve().parent / "uploads"
+    UPLOADS_DIR.mkdir(exist_ok=True)
+    (UPLOADS_DIR / "snapshots").mkdir(exist_ok=True)
+    app.state.uploads_dir = UPLOADS_DIR
+    app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
+
+    # Seed default store if stores table is empty
+    db = SessionLocal()
+    try:
+        if db.query(Store).count() == 0:
+            db.add(Store(name="default"))
+            db.commit()
+            print("Seeded default store")
+    finally:
+        db.close()
 
 
 @app.get("/health")
@@ -139,6 +182,67 @@ class EditCountInput(BaseModel):
     count: int
     confidence_score: Optional[str] = None
     units: Optional[str] = None
+
+
+class StoreCreate(BaseModel):
+    name: str
+
+
+class StoreResponse(BaseModel):
+    id: int
+    name: str
+
+    class Config:
+        from_attributes = True
+
+
+# ---------------------------------------------------------------------------
+# Store CRUD
+# ---------------------------------------------------------------------------
+
+@app.get("/stores")
+def list_stores(db: Session = Depends(get_db)):
+    stores = db.query(Store).order_by(Store.id).all()
+    return {"stores": [
+        {
+            "id": s.id,
+            "name": s.name,
+            "snapshot_count": db.query(Snapshot).filter(Snapshot.store_name == s.name).count(),
+        }
+        for s in stores
+    ]}
+
+
+@app.post("/stores", response_model=StoreResponse, status_code=201)
+def create_store(data: StoreCreate, db: Session = Depends(get_db)):
+    name = data.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Store name cannot be empty")
+    existing = db.query(Store).filter(Store.name == name).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="A store with that name already exists")
+    store = Store(name=name)
+    db.add(store)
+    db.commit()
+    db.refresh(store)
+    return store
+
+
+@app.delete("/stores/{store_id}")
+def delete_store(store_id: int, db: Session = Depends(get_db)):
+    store = db.query(Store).filter(Store.id == store_id).first()
+    if not store:
+        raise HTTPException(status_code=404, detail="Store not found")
+    # Cascade: delete inventory counts for this store's snapshots, then snapshots, then store
+    snapshot_ids = [
+        s.id for s in db.query(Snapshot.id).filter(Snapshot.store_name == store.name).all()
+    ]
+    if snapshot_ids:
+        db.query(InventoryCount).filter(InventoryCount.snapshot_id.in_(snapshot_ids)).delete(synchronize_session=False)
+        db.query(Snapshot).filter(Snapshot.store_name == store.name).delete(synchronize_session=False)
+    db.delete(store)
+    db.commit()
+    return {"status": "deleted", "id": store_id}
 
 
 # ---------------------------------------------------------------------------
@@ -315,6 +419,7 @@ def list_snapshots(
             "timestamp": s.timestamp.isoformat() if s.timestamp else None,
             "time_of_day": s.time_of_day,
             "store_name": s.store_name,
+            "image_url": f"/uploads/{s.image_path}" if getattr(s, "image_path", None) else None,
             "counts": [
                 {
                     "product_type": c.product_type,
@@ -329,18 +434,61 @@ def list_snapshots(
     ]
 
 
+@app.get("/snapshots/latest-eod")
+def get_latest_eod(
+    store_name: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+):
+    """Return the most recent EOD snapshot for a store."""
+    query = db.query(Snapshot).filter(Snapshot.time_of_day == "EOD").order_by(Snapshot.timestamp.desc())
+    if store_name:
+        query = query.filter(Snapshot.store_name == store_name)
+    snap = query.first()
+    if not snap:
+        raise HTTPException(status_code=404, detail="No EOD snapshot found")
+    return {
+        "id": snap.id,
+        "timestamp": snap.timestamp.isoformat() if snap.timestamp else None,
+        "time_of_day": snap.time_of_day,
+        "store_name": snap.store_name,
+        "counts": [
+            {
+                "product_type": c.product_type,
+                "count": c.count,
+                "confidence_score": c.confidence_score or "medium",
+                "units": c.units or "units",
+            }
+            for c in snap.counts
+        ],
+    }
+
+
 @app.post("/snapshots/upload", response_model=SnapshotResponse)
 async def upload_snapshot(
     file: UploadFile = File(...),
     time_of_day: str = Form(...),
     store_name: str = Form("default"),
+    snapshot_date: Optional[str] = Form(None),
     db: Session = Depends(get_db),
 ):
     """Upload a shelf photo. Gemini Vision counts products and stores the results."""
     if time_of_day not in ("AM", "EOD"):
         raise HTTPException(status_code=400, detail="time_of_day must be 'AM' or 'EOD'")
+    if not db.query(Store).filter(Store.name == store_name).first():
+        raise HTTPException(status_code=400, detail="Store not found. Add the store first.")
     if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="Uploaded file must be an image")
+
+    # Determine timestamp from snapshot_date or fallback to now
+    if snapshot_date:
+        try:
+            parsed_date = date.fromisoformat(snapshot_date)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="snapshot_date must be YYYY-MM-DD")
+        hour = 8 if time_of_day == "AM" else 17
+        timestamp = datetime(parsed_date.year, parsed_date.month, parsed_date.day, hour, 0, 0)
+    else:
+        timestamp = datetime.utcnow()
 
     image_bytes = await file.read()
 
@@ -354,9 +502,22 @@ async def upload_snapshot(
     snapshot = Snapshot(
         time_of_day=time_of_day,
         store_name=store_name,
-        timestamp=datetime.utcnow(),
+        timestamp=timestamp,
     )
     db.add(snapshot)
+    db.flush()
+
+    # Save uploaded image to disk
+    ct = (file.content_type or "").lower()
+    ext = ".webp" if "webp" in ct else (".png" if "png" in ct else ".jpg")
+    uploads_dir = getattr(app.state, "uploads_dir", Path(__file__).resolve().parent / "uploads")
+    snap_dir = uploads_dir / "snapshots"
+    snap_dir.mkdir(parents=True, exist_ok=True)
+    image_filename = f"{snapshot.id}{ext}"
+    image_path = snap_dir / image_filename
+    with open(image_path, "wb") as f:
+        f.write(image_bytes)
+    snapshot.image_path = f"snapshots/{image_filename}"
     db.flush()
 
     counts = []
@@ -398,6 +559,8 @@ def create_manual_snapshot(
     """Manually create an inventory snapshot (no photo)."""
     if data.time_of_day not in ("AM", "EOD"):
         raise HTTPException(status_code=400, detail="time_of_day must be 'AM' or 'EOD'")
+    if not db.query(Store).filter(Store.name == data.store_name).first():
+        raise HTTPException(status_code=400, detail="Store not found. Add the store first.")
 
     snapshot = Snapshot(
         time_of_day=data.time_of_day,
