@@ -43,6 +43,7 @@ export default function ForecastsPage() {
   const [forecasts, setForecasts] = useState<ForecastResult[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showReorderSuccess, setShowReorderSuccess] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -310,8 +311,11 @@ export default function ForecastsPage() {
                         </tbody>
                       </table>
                     </div>
-                    <Button className="w-full bg-emerald-600 hover:bg-emerald-700 text-white">
-                      Create reorder (placeholder)
+                    <Button
+                      onClick={() => setShowReorderSuccess(true)}
+                      className="w-full bg-emerald-600 hover:bg-emerald-700 text-white"
+                    >
+                      Create reorder
                     </Button>
                   </>
                 )}
@@ -320,6 +324,23 @@ export default function ForecastsPage() {
           </TabsContent>
         </Tabs>
       </div>
+
+      {showReorderSuccess && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-card border border-border rounded-lg p-6 max-w-sm w-full mx-4 shadow-xl">
+            <p className="text-center text-foreground">
+              Success! <strong>{storeName}</strong> inventory.csv has been sent
+              to your email address.
+            </p>
+            <Button
+              onClick={() => setShowReorderSuccess(false)}
+              className="w-full mt-4 bg-emerald-600 hover:bg-emerald-700 text-white"
+            >
+              OK
+            </Button>
+          </div>
+        </div>
+      )}
     </>
   );
 }
