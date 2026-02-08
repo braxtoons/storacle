@@ -2,13 +2,13 @@
 
 **Retail inventory tracker with AI-powered vision and demand forecasting**
 
-Built for UGAHacks 11 | NCR Voyix Track (Stockout Prediction + Reorder Timing) | General AI | First Timer | .tech Domain Name 
+Built for UGAHacks 11 | NCR Voyix Track (Stockout Prediction + Reorder Timing) | General AI | First Timer | .tech Domain Name
 
 ## Team
 
-Braxton Scarborough, Noah Piontek, Zachary Locker, Tyler Price
+Braxton Scarbrough, Noah Piontek, Zachary Locker, Tyler Price
 
-## Project Purpose 
+## Project Purpose
 
 Storacle helps retail businesses track inventory with just two photos per day (morning and end-of-day). Using Google Gemini Vision API, it automatically counts products and forecasts stockouts to suggest optimal reorder timing.
 
@@ -26,9 +26,9 @@ Storacle helps retail businesses track inventory with just two photos per day (m
 4. **Analyze:** View trends and forecasts on dashboard
 5. **Reorder:** Get stockout alerts and reorder timing suggestions
 
-## Challenges 
+## Challenges
 
-The main issues we ran into were developing a solid plan to handle image uploading and data display for the user. We discussed countless ways that images could be uploaded and how that could data be displayed. We drafted some mock-ups of the site design, went through many iterations, and ultimately chose the design and layout we thought would best suit the user.    
+The main issues we ran into were developing a solid plan to handle image uploading and data display for the user. We discussed countless ways that images could be uploaded and how that could data be displayed. We drafted some mock-ups of the site design, went through many iterations, and ultimately chose the design and layout we thought would best suit the user.
 
 ## Tech Stack
 
@@ -119,7 +119,7 @@ All inventory data flows into a single SQLite database (`inventory.db`) through 
 ```
 Photo upload ──→ Gemini Vision ──→ JSON ──→ DB
 Manual entry ────────────────────────────→ DB
-Manual edit  ────────────────────────────→ DB
+Manual edit  ───────────────────────────→ DB
 ```
 
 ### Schema
@@ -201,18 +201,18 @@ curl -X PUT http://localhost:8000/snapshots/1/counts \
 ```
 storacle/
 ├── backend/              # FastAPI service
-│   ├── main.py          # API routes, Gemini integration
-│   ├── models.py        # SQLAlchemy ORM models (Snapshot, InventoryCount)
-│   ├── database.py      # Database configuration
-│   ├── requirements.txt # Python dependencies
-│   ├── .env.example     # Environment template
-│   └── setup.sh         # Automated setup script
-├── frontend/            # Next.js application
-│   ├── app/            # Next.js App Router pages
-│   ├── lib/            # Utilities and API client
+│   ├── main.py           # API routes, Gemini integration
+│   ├── models.py         # SQLAlchemy ORM models (Snapshot, InventoryCount)
+│   ├── database.py       # Database configuration
+│   ├── requirements.txt  # Python dependencies
+│   ├── .env.example      # Environment template
+│   └── setup.sh          # Automated setup script
+├── frontend/             # Next.js application
+│   ├── app/              # Next.js App Router pages
+│   ├── lib/              # Utilities and API client
 │   └── .env.local.example
-├── CLAUDE.md           # Project guidelines for AI assistance
-└── INSTRUCTIONS.md     # Detailed setup instructions
+├── CLAUDE.md             # Project guidelines for AI assistance
+└── INSTRUCTIONS.md       # Detailed setup instructions
 ```
 
 ## Environment Variables
@@ -228,6 +228,11 @@ storacle/
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `NEXT_PUBLIC_API_URL` | Backend API base URL | `http://localhost:8000` |
+
+## Public Frameworks used
+
+- **shadcn/ui** – React component library
+- **Shadcn MCP Server** – Cursor MCP that helps with shadcn components
 
 ## License
 
