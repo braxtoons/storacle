@@ -37,6 +37,29 @@ function stockoutRisk(
   return "ok";
 }
 
+function downloadReorderCsv(items: ForecastResult[]) {
+  const headers = ["Product", "Suggested order (units)", "Order by", "Confidence"];
+  const rows = items.map((f) => [
+    formatProductLabel(f.product_type),
+    String(Math.ceil(f.predicted_stock_needed)),
+    f.restock_date_median,
+    f.restock_confidence_level != null
+      ? `${(f.restock_confidence_level * 100).toFixed(0)}%`
+      : "",
+  ]);
+  const csvContent = [
+    headers.join(","),
+    ...rows.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")),
+  ].join("\n");
+  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `reorder-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 export default function ForecastsPage() {
   const storeName = useStoreName();
   const [productTypes, setProductTypes] = useState<string[]>([]);
@@ -312,10 +335,17 @@ export default function ForecastsPage() {
                       </table>
                     </div>
                     <Button
+<<<<<<< HEAD
                       onClick={() => setShowReorderSuccess(true)}
                       className="w-full bg-emerald-600 hover:bg-emerald-700 text-white"
                     >
                       Create reorder
+=======
+                      className="w-full bg-emerald-600 hover:bg-emerald-700 text-white"
+                      onClick={() => downloadReorderCsv(reorderItems)}
+                    >
+                      Download reorder CSV
+>>>>>>> 02d64c4 (Added Reorder Functionality)
                     </Button>
                   </>
                 )}
