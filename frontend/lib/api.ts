@@ -14,6 +14,8 @@ export interface Snapshot {
   id: number;
   timestamp: string;
   time_of_day: "AM" | "EOD";
+  store_name?: string;
+  counts?: InventoryCount[];
 }
 
 export interface SnapshotUploadResponse {
@@ -46,11 +48,13 @@ export class ApiError extends Error {
  */
 export async function uploadSnapshot(
   file: File,
-  timeOfDay: "AM" | "EOD"
+  timeOfDay: "AM" | "EOD",
+  storeName: string = "default"
 ): Promise<SnapshotUploadResponse> {
   const formData = new FormData();
   formData.append("file", file);
   formData.append("time_of_day", timeOfDay);
+  formData.append("store_name", storeName);
 
   try {
     const response = await fetch(`${API_BASE_URL}/snapshots/upload`, {
