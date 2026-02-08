@@ -171,7 +171,7 @@ Once the backend is running:
 | `POST` | `/snapshots/upload` | Upload shelf photo → Gemini counts → DB (form: `file`, `time_of_day`, `store_name`) |
 | `POST` | `/snapshots/manual` | Manually create a snapshot with counts (JSON body) |
 | `PUT` | `/snapshots/{id}/counts` | Edit counts on an existing snapshot (JSON body) |
-| `GET` | `/forecast` | *(planned)* Demand forecast and reorder suggestions |
+| `GET` | `/forecast` | Demand forecast and reorder suggestions |
 
 ### Example: Manual Entry
 
