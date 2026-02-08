@@ -28,7 +28,10 @@ Storacle helps retail businesses track inventory with just two photos per day (m
 
 ## Challenges
 
-The main issues we ran into were developing a solid plan to handle image uploading and data display for the user. We discussed countless ways that images could be uploaded and how that could data be displayed. We drafted some mock-ups of the site design, went through many iterations, and ultimately chose the design and layout we thought would best suit the user.
+* Choosing how to store data
+* Getting Gemini API to work with free tier
+* Managing dependencies across teammates without containers
+* Parsing data from ML model (dates wouldn't format as intended from docs)
 
 ## Tech Stack
 
