@@ -13,6 +13,7 @@ import google.genai as genai
 
 from database import engine, get_db, SessionLocal, Base
 from models import Snapshot, InventoryCount, GeminiSpend
+from forecast import run_forecast
 
 load_dotenv()
 
@@ -345,3 +346,40 @@ def edit_snapshot_counts(
 
     db.commit()
     return {"status": "updated", "snapshot_id": snapshot_id}
+
+
+# ---------------------------------------------------------------------------
+# Forecast & restock
+# ---------------------------------------------------------------------------
+
+@app.get("/forecast")
+def get_forecast(
+    product_type: str = Query(..., description="Product type to forecast"),
+    store_name: Optional[str] = Query(None),
+    horizon: int = Query(14, ge=1, le=90),
+    safety_stock: float = Query(0, ge=0),
+    db: Session = Depends(get_db),
+):
+    """
+    Forecast demand and restock date using exponential smoothing on daily demand.
+
+    Daily demand = AM count - EOD count (units consumed per day). Returns predicted
+    stock needed over the horizon, median restock date, and an 80% confidence interval
+    for the restock date (earliest–latest likely restock day).
+    """
+    result = run_forecast(
+        db,
+        product_type=product_type,
+        store_name=store_name,
+        horizon=horizon,
+        safety_stock=safety_stock,
+    )
+    if result is None:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Insufficient data for product '{product_type}'. "
+                "Need at least 2 days with both AM and EOD snapshots."
+            ),
+        )
+    return result
