@@ -6,7 +6,7 @@ Built for UGAHacks 11 | NCR Voyix Track (Stockout Prediction + Reorder Timing) |
 
 ## Team
 
-Braxton Scarbrough, Noah Piontek, Zachary Locker, Tyler Price
+Braxton Scarborough, Noah Piontek, Zachary Locker, Tyler Price
 
 ## Project Purpose 
 
