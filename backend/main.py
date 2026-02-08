@@ -10,6 +10,7 @@ from typing import List, Optional
 from datetime import datetime
 from dotenv import load_dotenv
 import google.genai as genai
+from google.genai import types
 
 from database import engine, get_db, SessionLocal, Base
 from models import Snapshot, InventoryCount, GeminiSpend
@@ -156,19 +157,20 @@ async def count_products_from_image(image_bytes: bytes, mime_type: str, db: Sess
 
     b64_data = base64.b64encode(image_bytes).decode("utf-8")
 
-    # Combine system and user prompts
-    combined_prompt = f"{SYSTEM_PROMPT}\n\n{USER_PROMPT}"
-
+    # Use system_instruction in config for system prompt, user prompt in contents
     response = gemini_client.models.generate_content(
         model="gemini-2.0-flash",
         contents=[
             {
                 "parts": [
                     {"inline_data": {"mime_type": mime_type, "data": b64_data}},
-                    {"text": combined_prompt},
+                    {"text": USER_PROMPT},
                 ]
             }
         ],
+        config=types.GenerateContentConfig(
+            system_instruction=SYSTEM_PROMPT,
+        ),
     )
 
     # Track spend from usage metadata
