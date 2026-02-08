@@ -2,7 +2,7 @@
 
 **Retail inventory tracker with AI-powered vision and demand forecasting**
 
-Built for UGAHacks 11 | NCR Voyix Track (Stockout Prediction + Reorder Timing) | General AI | First Timer | .tech Domain Name
+Built for UGAHacks 11 | First Timer
 
 ## Team
 
@@ -160,7 +160,6 @@ Each item becomes an `InventoryCount` row linked to the snapshot.
 
 Once the backend is running:
 - **Swagger UI:** http://localhost:8000/docs
-- **ReDoc:** http://localhost:8000/redoc
 
 ### Key Endpoints
 
