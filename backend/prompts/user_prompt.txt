@@ -1,0 +1,11 @@
+Look at this retail shelf photo and count every visible product by type.
+
+Return ONLY a JSON array with this exact structure:
+[{"product_type": "product_name", "count": number, "confidence_score": "low|medium|high", "units": "measurement_unit"}]
+
+Remember:
+- Use lowercase_snake_case for product names
+- Count each visible unit accurately
+- Rate your confidence: "high" (clear/certain), "medium" (standard quality), "low" (blurry/uncertain)
+- Specify measurement units: "units", "boxes", "cans", "bottles", "bags", "pounds", "pieces", etc. (default to "units" if unclear)
+- Return only the JSON array, nothing else

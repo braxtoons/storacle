@@ -11,6 +11,7 @@ from typing import List, Optional
 from datetime import datetime
 from dotenv import load_dotenv
 import google.genai as genai
+from google.genai import types
 
 from database import engine, get_db, SessionLocal, Base
 from models import Snapshot, InventoryCount, GeminiSpend
@@ -19,6 +20,29 @@ from forecast import run_forecast, get_forecastable_product_types
 load_dotenv()
 
 app = FastAPI()
+
+# Load prompts from files
+PROMPTS_DIR = os.path.join(os.path.dirname(__file__), "prompts")
+SYSTEM_PROMPT = ""
+USER_PROMPT = ""
+
+
+def load_prompts():
+    """Load system and user prompts from files."""
+    global SYSTEM_PROMPT, USER_PROMPT
+
+    system_prompt_path = os.path.join(PROMPTS_DIR, "system_prompt.txt")
+    user_prompt_path = os.path.join(PROMPTS_DIR, "user_prompt.txt")
+
+    try:
+        with open(system_prompt_path, "r") as f:
+            SYSTEM_PROMPT = f.read().strip()
+        with open(user_prompt_path, "r") as f:
+            USER_PROMPT = f.read().strip()
+        print(f"Loaded prompts from {PROMPTS_DIR}")
+    except FileNotFoundError as e:
+        print(f"Warning: Could not load prompt files: {e}")
+        
 
 app.add_middleware(
     CORSMiddleware,
@@ -38,6 +62,9 @@ OUTPUT_COST_PER_TOKEN = 0.40 / 1_000_000   # $0.40 per 1M output tokens
 @app.on_event("startup")
 def on_startup():
     Base.metadata.create_all(bind=engine)
+
+    # Load prompts from files
+    load_prompts()
 
     # Initialize spend row if it doesn't exist, and optionally reset
     db = SessionLocal()
@@ -79,6 +106,8 @@ def health():
 class InventoryCountResponse(BaseModel):
     product_type: str
     count: int
+    confidence_score: Optional[str] = "medium"  # "low", "medium", or "high"
+    units: Optional[str] = "units"  # Measurement unit: "units", "boxes", "cans", "bottles", "bags", "pounds", etc.
 
     class Config:
         from_attributes = True
@@ -95,6 +124,8 @@ class SnapshotResponse(BaseModel):
 class ManualCountInput(BaseModel):
     product_type: str
     count: int
+    confidence_score: Optional[str] = "medium"
+    units: Optional[str] = "units"
 
 
 class ManualSnapshotInput(BaseModel):
@@ -106,6 +137,8 @@ class ManualSnapshotInput(BaseModel):
 class EditCountInput(BaseModel):
     product_type: str
     count: int
+    confidence_score: Optional[str] = None
+    units: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -143,25 +176,20 @@ async def count_products_from_image(image_bytes: bytes, mime_type: str, db: Sess
 
     b64_data = base64.b64encode(image_bytes).decode("utf-8")
 
+    # Use system_instruction in config for system prompt, user prompt in contents
     response = gemini_client.models.generate_content(
         model="gemini-2.0-flash",
         contents=[
             {
                 "parts": [
                     {"inline_data": {"mime_type": mime_type, "data": b64_data}},
-                    {"text": (
-                        "You are a retail inventory counter. "
-                        "Look at this shelf photo and count every visible product by type. "
-                        "Return ONLY a JSON array, no markdown, no explanation. "
-                        "Each element MUST be an object with exactly two keys: \"product_type\" (string) and \"count\" (integer). "
-                        "Example: [{\"product_type\": \"skittles\", \"count\": 7}, {\"product_type\": \"pringles_original\", \"count\": 12}] "
-                        "Use lowercase_snake_case for product_type names. "
-                        "Do NOT use the product name as a JSON key. "
-                        "If you cannot identify products, return an empty array []."
-                    )},
+                    {"text": USER_PROMPT},
                 ]
             }
         ],
+        config=types.GenerateContentConfig(
+            system_instruction=SYSTEM_PROMPT,
+        ),
     )
 
     # Track spend from usage metadata
@@ -185,8 +213,10 @@ async def count_products_from_image(image_bytes: bytes, mime_type: str, db: Sess
     print(f"Gemini raw response: {raw_items}")
 
     # Normalize keys — Gemini may use "product", "item", "name", etc.
-    KNOWN_PRODUCT_KEYS = ("product_type", "product", "item", "name", "type", "label", "category")
+    KNOWN_PRODUCT_KEYS = ("product_type", "product", "item", "name", "type", "label")
     KNOWN_COUNT_KEYS = ("count", "quantity", "number", "amount", "total")
+    KNOWN_CONFIDENCE_KEYS = ("confidence_score", "confidence", "accuracy", "certainty")
+    KNOWN_UNITS_KEYS = ("units", "unit", "measurement", "measurement_unit")
 
     normalized = []
     for item in raw_items:
@@ -202,6 +232,18 @@ async def count_products_from_image(image_bytes: bytes, mime_type: str, db: Sess
             None,
         )
 
+        # Extract optional new fields with defaults (backward compatible)
+        confidence = next(
+            (v for k in KNOWN_CONFIDENCE_KEYS
+             if (v := item.get(k)) is not None and v != ""),
+            "medium",  # Default if not provided
+        )
+        unit = next(
+            (v for k in KNOWN_UNITS_KEYS
+             if (v := item.get(k)) is not None and v != ""),
+            "units",  # Default if not provided
+        )
+
         # Fallback: Gemini sometimes returns {"product_name": count_value} with
         # the product as the key and the count as the value (single-entry dicts
         # or dicts where no known key matched).
@@ -215,10 +257,27 @@ async def count_products_from_image(image_bytes: bytes, mime_type: str, db: Sess
                     except (ValueError, TypeError):
                         continue
 
+        # Validate confidence_score (must be low, medium, or high)
+        confidence_str = str(confidence).lower()
+        if confidence_str not in ("low", "medium", "high"):
+            confidence_str = "medium"
+
         normalized.append({
             "product_type": str(product or "unknown").lower().replace(" ", "_"),
             "count": int(count or 0),
+            "confidence_score": confidence_str,
+            "units": str(unit or "units").lower().replace(" ", "_"),
         })
+
+    # Print scan results to terminal
+    print("\n" + "="*80)
+    print("SCAN RESULTS")
+    print("="*80)
+    print(f"Total products identified: {len(normalized)}")
+    print("-"*80)
+    for idx, item in enumerate(normalized, 1):
+        print(f"{idx:2d}. {item['product_type']:40s} | Count: {item['count']:3d} | Confidence: {item['confidence_score']:6s} | Units: {item['units']}")
+    print("="*80 + "\n")
 
     return normalized
 
@@ -257,7 +316,12 @@ def list_snapshots(
             "time_of_day": s.time_of_day,
             "store_name": s.store_name,
             "counts": [
-                {"product_type": c.product_type, "count": c.count}
+                {
+                    "product_type": c.product_type,
+                    "count": c.count,
+                    "confidence_score": c.confidence_score or "medium",
+                    "units": c.units or "units",
+                }
                 for c in s.counts
             ],
         }
@@ -301,6 +365,8 @@ async def upload_snapshot(
             snapshot_id=snapshot.id,
             product_type=item["product_type"],
             count=item["count"],
+            confidence_score=item.get("confidence_score", "medium"),
+            units=item.get("units", "units"),
         )
         db.add(ic)
         counts.append(ic)
@@ -312,7 +378,15 @@ async def upload_snapshot(
         timestamp=snapshot.timestamp.isoformat(),
         time_of_day=snapshot.time_of_day,
         store_name=snapshot.store_name,
-        counts=[InventoryCountResponse(product_type=c.product_type, count=c.count) for c in counts],
+        counts=[
+            InventoryCountResponse(
+                product_type=c.product_type,
+                count=c.count,
+                confidence_score=c.confidence_score,
+                units=c.units,
+            )
+            for c in counts
+        ],
     )
 
 
@@ -339,6 +413,8 @@ def create_manual_snapshot(
             snapshot_id=snapshot.id,
             product_type=item.product_type,
             count=item.count,
+            confidence_score=item.confidence_score or "medium",
+            units=item.units or "units",
         )
         db.add(ic)
         counts.append(ic)
@@ -350,7 +426,15 @@ def create_manual_snapshot(
         timestamp=snapshot.timestamp.isoformat(),
         time_of_day=snapshot.time_of_day,
         store_name=snapshot.store_name,
-        counts=[InventoryCountResponse(product_type=c.product_type, count=c.count) for c in counts],
+        counts=[
+            InventoryCountResponse(
+                product_type=c.product_type,
+                count=c.count,
+                confidence_score=c.confidence_score,
+                units=c.units,
+            )
+            for c in counts
+        ],
     )
 
 
@@ -373,11 +457,18 @@ def edit_snapshot_counts(
         )
         if existing:
             existing.count = update.count
+            # Update optional fields if provided
+            if update.confidence_score is not None:
+                existing.confidence_score = update.confidence_score
+            if update.units is not None:
+                existing.units = update.units
         else:
             db.add(InventoryCount(
                 snapshot_id=snapshot_id,
                 product_type=update.product_type,
                 count=update.count,
+                confidence_score=update.confidence_score or "medium",
+                units=update.units or "units",
             ))
 
     db.commit()

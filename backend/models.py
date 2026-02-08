@@ -23,6 +23,9 @@ class InventoryCount(Base):
     snapshot_id = Column(Integer, ForeignKey("snapshots.id"), nullable=False)
     product_type = Column(String, nullable=False)
     count = Column(Integer, nullable=False)
+    # Optional fields for enhanced product identification (backward compatible)
+    confidence_score = Column(String, nullable=True, default="medium")  # "low", "medium", or "high"
+    units = Column(String, nullable=True, default="units")  # Measurement unit: "units", "boxes", "cans", "bottles", "bags", "pounds", etc.
 
     snapshot = relationship("Snapshot", back_populates="counts")
 
