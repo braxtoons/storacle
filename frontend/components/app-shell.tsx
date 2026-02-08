@@ -9,7 +9,6 @@ import {
   Upload,
   Package,
   TrendingUp,
-  Search,
   Plus,
   X,
   Store as StoreIcon,
@@ -184,15 +183,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           )}
         </div>
 
-        <div className="p-3">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-            <Input
-              placeholder="Search products..."
-              className="pl-9 h-9 bg-background/50 border-sidebar-border"
-            />
-          </div>
-        </div>
         <nav className="flex-1 px-2 space-y-0.5">
           {navItems.map((item) => {
             const Icon = item.icon;

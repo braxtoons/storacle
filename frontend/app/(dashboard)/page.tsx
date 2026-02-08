@@ -60,6 +60,16 @@ function StockoutGauge({
   variant: "destructive" | "warning" | "success";
   fillPercent: number;
 }) {
+  const [animatedPercent, setAnimatedPercent] = useState(0);
+
+  useEffect(() => {
+    setAnimatedPercent(0); // Reset to empty so we can animate to target
+    const id = requestAnimationFrame(() => {
+      requestAnimationFrame(() => setAnimatedPercent(fillPercent));
+    });
+    return () => cancelAnimationFrame(id);
+  }, [fillPercent]);
+
   const variantStyles = {
     destructive: "bg-red-500 text-red-950",
     warning: "bg-amber-500 text-amber-950",
@@ -75,7 +85,7 @@ function StockoutGauge({
   const strokeWidth = 8;
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
-  const clampedPercent = Math.min(100, Math.max(0, fillPercent));
+  const clampedPercent = Math.min(100, Math.max(0, animatedPercent));
   const strokeDashoffset = circumference - (clampedPercent / 100) * circumference;
   return (
     <div className="flex flex-col items-center gap-2">
@@ -107,7 +117,7 @@ function StockoutGauge({
             strokeLinecap="round"
             strokeDasharray={circumference}
             strokeDashoffset={strokeDashoffset}
-            className="transition-all duration-500"
+            className="transition-[stroke-dashoffset] duration-700 ease-out"
           />
         </svg>
       </div>
@@ -224,7 +234,7 @@ export default function DashboardPage() {
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-4 p-6 overflow-auto">
         <Card className="flex flex-col border-border bg-card overflow-hidden">
           <CardHeader className="pb-2">
-            <CardTitle className="text-base">Snapshot feed</CardTitle>
+            <CardTitle className="text-2xl">Snapshot feed</CardTitle>
           </CardHeader>
           <CardContent className="flex-1 flex flex-col min-h-[200px] p-0">
             <div className="relative flex-1 min-h-[240px] bg-muted/30 rounded-b-xl overflow-hidden">
@@ -277,7 +287,7 @@ export default function DashboardPage() {
 
         <Card className="flex flex-col border-border bg-card">
           <CardHeader className="pb-2">
-            <CardTitle className="text-base">Daily usage</CardTitle>
+            <CardTitle className="text-2xl">Daily usage</CardTitle>
           </CardHeader>
           <CardContent className="flex-1 min-h-[200px] flex flex-col">
             <div className="flex-1 min-h-[160px] flex items-center justify-center bg-muted/20 rounded-lg">
@@ -285,8 +295,8 @@ export default function DashboardPage() {
                 <Loader2 className="size-5 animate-spin text-muted-foreground" />
               ) : dailyDelta !== null ? (
                 <div className="text-center space-y-2">
-                  <p className="text-4xl font-bold tabular-nums">{dailyDelta}</p>
-                  <p className="text-sm text-muted-foreground">units consumed today</p>
+                  <p className="text-7xl font-bold tabular-nums">{dailyDelta}</p>
+                  <p className="text-lg text-muted-foreground">units consumed today</p>
                 </div>
               ) : (
                 <p className="text-sm text-muted-foreground px-4 text-center">
@@ -302,7 +312,7 @@ export default function DashboardPage() {
 
         <Card className="flex flex-col border-border bg-card">
           <CardHeader className="pb-2">
-            <CardTitle className="text-base">Stockout countdown</CardTitle>
+            <CardTitle className="text-2xl">Inventory countdown</CardTitle>
           </CardHeader>
           <CardContent>
             {forecastLoading ? (
@@ -348,7 +358,7 @@ export default function DashboardPage() {
 
         <Card className="flex flex-col border-border bg-card">
           <CardHeader className="pb-2">
-            <CardTitle className="text-base">Suggested reorder</CardTitle>
+            <CardTitle className="text-2xl">Suggested reorder</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
             {forecastLoading ? (

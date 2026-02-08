@@ -156,7 +156,7 @@ def restock_day_from_path(
     """
     inv = current_inventory
     for i, d in enumerate(demand_path):
-        inv -= float(d)
+        inv -= max(0, float(d))  # Clamp demand to >= 0; negative predictions are not meaningful
         if inv <= safety_stock:
             return i
     return None
@@ -247,8 +247,9 @@ def run_forecast_from_series(
         num_samples=num_samples,
     )
     point_values = point_forecast.values().flatten()
-    predicted_demand_per_day = [float(x) for x in point_values]
-    predicted_stock_needed = float(np.maximum(0, point_values).sum())
+    # Clamp predicted demand to >= 0; negative values are not meaningful for usage
+    predicted_demand_per_day = [max(0, float(x)) for x in point_values]
+    predicted_stock_needed = float(np.sum(predicted_demand_per_day))
 
     last_date = demand_series.index[-1]
     if isinstance(last_date, pd.Timestamp):
@@ -280,7 +281,9 @@ def run_forecast_from_series(
         result["restock_day_low"] = restock["restock_day_low"]
         result["restock_day_high"] = restock["restock_day_high"]
     else:
-        day = restock_day_from_path(current_inventory, point_values, safety_stock)
+        day = restock_day_from_path(
+            current_inventory, np.array(predicted_demand_per_day), safety_stock
+        )
         if day is not None:
             restock_date = (start_date + timedelta(days=day)).date().isoformat()
             result["restock_date_median"] = restock_date
