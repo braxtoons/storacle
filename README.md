@@ -112,26 +112,97 @@ TO-DO
 
    The app will be available at `http://localhost:3000`
 
+## Database Pipeline
+
+All inventory data flows into a single SQLite database (`inventory.db`) through three paths:
+
+```
+Photo upload ──→ Gemini Vision ──→ JSON ──→ DB
+Manual entry ────────────────────────────→ DB
+Manual edit  ────────────────────────────→ DB
+```
+
+### Schema
+
+**`snapshots`** — One row per inventory check (AM opening or EOD closing).
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | Integer (PK) | Auto-incremented ID |
+| `timestamp` | DateTime | When the snapshot was taken |
+| `time_of_day` | String | `"AM"` or `"EOD"` |
+| `store_name` | String | Store identifier (e.g. `"downtown_grocery"`) |
+
+**`inventory_counts`** — One row per product type per snapshot.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | Integer (PK) | Auto-incremented ID |
+| `snapshot_id` | Integer (FK) | References `snapshots.id` |
+| `product_type` | String | e.g. `"canned_beans"`, `"pasta"` |
+| `count` | Integer | Number of items counted |
+
+### Multi-Store Support
+
+All stores share one database, filtered by `store_name`. Pass `?store_name=my_store` on GET requests or include `store_name` in POST/form data.
+
+### Gemini Vision Integration
+
+When a photo is uploaded, Gemini Vision analyzes the shelf image and returns a JSON array of product counts:
+
+```json
+[{"product_type": "canned_beans", "count": 12}, {"product_type": "pasta", "count": 8}]
+```
+
+Each item becomes an `InventoryCount` row linked to the snapshot.
+
 ## API Documentation
 
-Once the backend is running: 
+Once the backend is running:
 - **Swagger UI:** http://localhost:8000/docs
 - **ReDoc:** http://localhost:8000/redoc
 
 ### Key Endpoints
 
-- `GET /health` - Health check
-- `GET /snapshots` - List recent inventory snapshots
-- `POST /snapshots/upload` - Upload inventory image (accepts `file` and `time_of_day`)
-- `GET /forecast` *(planned)* - Get demand forecast and reorder suggestions
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/health` | Health check |
+| `GET` | `/snapshots?store_name=X` | List recent snapshots (optionally filter by store) |
+| `POST` | `/snapshots/upload` | Upload shelf photo → Gemini counts → DB (form: `file`, `time_of_day`, `store_name`) |
+| `POST` | `/snapshots/manual` | Manually create a snapshot with counts (JSON body) |
+| `PUT` | `/snapshots/{id}/counts` | Edit counts on an existing snapshot (JSON body) |
+| `GET` | `/forecast` | *(planned)* Demand forecast and reorder suggestions |
+
+### Example: Manual Entry
+
+```bash
+curl -X POST http://localhost:8000/snapshots/manual \
+  -H "Content-Type: application/json" \
+  -d '{
+    "time_of_day": "AM",
+    "store_name": "downtown_grocery",
+    "counts": [
+      {"product_type": "canned_beans", "count": 45},
+      {"product_type": "pasta", "count": 30}
+    ]
+  }'
+```
+
+### Example: Edit Counts
+
+```bash
+curl -X PUT http://localhost:8000/snapshots/1/counts \
+  -H "Content-Type: application/json" \
+  -d '[{"product_type": "canned_beans", "count": 50}]'
+```
 
 ## Project Structure
 
 ```
 storacle/
 ├── backend/              # FastAPI service
-│   ├── main.py          # API routes and endpoints
-│   ├── models.py        # SQLAlchemy ORM models
+│   ├── main.py          # API routes, Gemini integration
+│   ├── models.py        # SQLAlchemy ORM models (Snapshot, InventoryCount)
 │   ├── database.py      # Database configuration
 │   ├── requirements.txt # Python dependencies
 │   ├── .env.example     # Environment template
